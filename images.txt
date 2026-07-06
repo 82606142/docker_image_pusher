@@ -3,7 +3,6 @@ nginx
 k8s.gcr.io/kube-state-metrics/kube-state-metrics:v2.0.0
 xhofe/alist:latest
 # node
-node:24-slim
-node:24-bullseye-slim
+node:24-bullseye
 #支持指定架构
 --platform=linux/arm64 xiaoyaliu/alist
