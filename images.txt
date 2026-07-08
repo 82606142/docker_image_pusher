@@ -5,5 +5,6 @@ xhofe/alist:latest
 # node
 node:24-slim
 node:24-bullseye
+node:24
 #支持指定架构
 --platform=linux/arm64 xiaoyaliu/alist
