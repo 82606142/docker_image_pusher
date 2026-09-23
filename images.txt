@@ -1,10 +1,4 @@
-# node
-node:22-slim
-node:24-slim
-node:24-bullseye
-node:24
-# python
-python:3.13-slim
+
 # weknora
 wechatopenai/weknora-ui:v0.7.0
 wechatopenai/weknora-app:v0.7.0
