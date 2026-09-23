@@ -39,28 +39,99 @@ jobs:
 
     - name: Clean root partition
       run: |
+        echo "========== 清理前 =========="
+        df -h /
+
+        # ========== 预装语言运行时和工具链 ==========
         sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /usr/local/lib/android
         sudo rm -rf /opt/ghc
-        sudo rm -rf /usr/local/share/boost
-        sudo rm -rf /opt/hostedtoolcache
-        sudo rm -rf /usr/local/.ghcup
+        sudo rm -rf /usr/lib/jvm
+        sudo rm -rf /usr/local/go
+        sudo rm -rf /usr/local/rvm
+        sudo rm -rf /usr/local/.rustup
+        sudo rm -rf /usr/local/cargo
+        sudo rm -rf /usr/local/lib/node_modules
+        sudo rm -rf /usr/local/lib/perl
         sudo rm -rf /opt/microsoft
         sudo rm -rf /usr/share/sbt
-        sudo rm -rf /usr/local/share/powershell
-        sudo rm -rf /usr/local/share/chromium
+
+        # ========== Android / iOS / 移动开发 ==========
+        sudo rm -rf /usr/local/lib/android
         sudo rm -rf /usr/local/share/vcpkg
+
+        # ========== 工具缓存 ==========
+        sudo rm -rf /opt/hostedtoolcache
+
+        # ========== 浏览器 / 编辑器 ==========
+        sudo rm -rf /usr/local/share/chromium
+        sudo rm -rf /usr/local/share/powershell
         sudo rm -rf /usr/local/share/azcopy
+        sudo rm -rf /usr/share/powershell
+        sudo rm -rf /usr/share/azcopy
+
+        # ========== Snap 包 ==========
+        sudo rm -rf /snap
+
+        # ========== 各种 CLI 工具 ==========
+        sudo rm -rf /opt/az
+        sudo rm -rf /opt/azcli
+        sudo rm -rf /opt/cmake
+        sudo rm -rf /opt/boost
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf /usr/local/.ghcup
+        sudo rm -rf /usr/local/share/CodeQL
+        sudo rm -rf /usr/local/share/codeql
+        sudo rm -rf /opt/CodeQL
+        sudo rm -rf /opt/codeql
+
+        # ========== 包管理缓存 ==========
         sudo rm -rf /var/lib/apt/lists/*
+        sudo rm -rf /var/cache/apt/archives/*
+        sudo rm -rf /var/cache/yum/*
+        sudo rm -rf /root/.cache
+        sudo rm -rf /home/runner/.cache
+
+        # ========== 文档 / 帮助 / 本地化 ==========
         sudo rm -rf /usr/share/doc/*
         sudo rm -rf /usr/share/man/*
-        sudo journalctl --vacuum-size=100M
+        sudo rm -rf /usr/share/locale/*
+        sudo rm -rf /usr/share/i18n
+        sudo rm -rf /usr/share/lintian
+        sudo rm -rf /usr/share/linda
+        sudo rm -rf /usr/share/gtk-doc
+
+        # ========== 日志 ==========
+        sudo rm -rf /var/log/*
+        sudo journalctl --vacuum-size=10M
+
+        # ========== 临时文件 ==========
+        sudo rm -rf /tmp/*
+        sudo rm -rf /var/tmp/*
+
+        # ========== Docker 镜像缓存 ==========
         sudo docker system prune -af || true
 
-        echo "根分区清理后:"
-        echo "=============================================================================="
+        # ========== npm / pip / go 缓存 ==========
+        sudo rm -rf /home/runner/.npm
+        sudo rm -rf /home/runner/.pip
+        sudo rm -rf /home/runner/.cache/pip
+        sudo rm -rf /home/runner/go/pkg/mod
+        sudo rm -rf /home/runner/.gradle
+        sudo rm -rf /home/runner/.m2
+        sudo rm -rf /home/runner/.nuget
+
+        # ========== 查找剩余大文件 ==========
+        echo "========== 查找剩余大文件 =========="
+        sudo du -sh /usr/* 2>/dev/null | sort -rh | head -10
+        sudo du -sh /opt/* 2>/dev/null | sort -rh | head -10
+        sudo du -sh /var/* 2>/dev/null | sort -rh | head -10
+        sudo du -sh /home/runner/* 2>/dev/null | sort -rh | head -10
+
+        # ========== 清理后 ==========
+        echo "========== 清理后 =========="
+        df -h /
+        echo "========== 完整报告 =========="
         df -hT
-        echo "=============================================================================="
 
     - name: Restart docker
       run: sudo service docker restart
@@ -82,7 +153,6 @@ jobs:
       run: |
         set -euo pipefail
 
-        # 使用 stdin 传密码，避免暴露在进程列表
         echo "$ALIYUN_REGISTRY_PASSWORD" | docker login \
           -u "$ALIYUN_REGISTRY_USER" \
           --password-stdin "$ALIYUN_REGISTRY"
@@ -119,6 +189,7 @@ jobs:
         # ===================== 第二遍：拉取、打标签、推送 =====================
         pull_failed=0
         push_failed=0
+        push_total=0
 
         while IFS= read -r line || [ -n "$line" ]; do
             [[ -z "${line// /}" ]] && continue
@@ -167,9 +238,26 @@ jobs:
                 continue
             fi
 
+            # ============ push with retry ============
             echo "docker push $new_image"
-            if ! timeout 600 docker push "$new_image"; then
-                echo "::error::Push failed: $new_image"
+            push_total=$((push_total + 1))
+            push_success=false
+            for attempt in 1 2 3; do
+                echo "尝试第 ${attempt}/3 次 push..."
+                if timeout 300 docker push "$new_image"; then
+                    push_success=true
+                    echo "::notice::Push 成功: $new_image"
+                    break
+                fi
+                echo "::warning::第 ${attempt} 次 push 失败: $new_image"
+                if [ "$attempt" -lt 3 ]; then
+                    echo "等待 30 秒后重试..."
+                    sleep 30
+                fi
+            done
+
+            if [ "$push_success" = false ]; then
+                echo "::error::Push 3次均失败: $new_image"
                 push_failed=$((push_failed + 1))
             fi
 
@@ -186,6 +274,7 @@ jobs:
 
         # ===================== 汇总结果 =====================
         echo "=========================================="
+        echo "镜像总数: $push_total"
         echo "Pull 失败: $pull_failed"
         echo "Push 失败: $push_failed"
         echo "=========================================="
