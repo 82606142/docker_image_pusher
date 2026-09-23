@@ -37,6 +37,31 @@ jobs:
         remove-tool-cache: 'true'
         build-mount-path: '/var/lib/docker'
 
+    - name: Clean root partition
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf /opt/hostedtoolcache
+        sudo rm -rf /usr/local/.ghcup
+        sudo rm -rf /opt/microsoft
+        sudo rm -rf /usr/share/sbt
+        sudo rm -rf /usr/local/share/powershell
+        sudo rm -rf /usr/local/share/chromium
+        sudo rm -rf /usr/local/share/vcpkg
+        sudo rm -rf /usr/local/share/azcopy
+        sudo rm -rf /var/lib/apt/lists/*
+        sudo rm -rf /usr/share/doc/*
+        sudo rm -rf /usr/share/man/*
+        sudo journalctl --vacuum-size=100M
+        sudo docker system prune -af || true
+
+        echo "根分区清理后:"
+        echo "=============================================================================="
+        df -hT
+        echo "=============================================================================="
+
     - name: Restart docker
       run: sudo service docker restart
 
