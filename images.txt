@@ -1,7 +1,4 @@
 # weknora
 
 golang:1.26-bookworm
-node:24-bookworm-slim
-nginx:1.30.3-alpine
-python:3.10.18-bookworm
-debian:12.12-slim
+
