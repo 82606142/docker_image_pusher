@@ -1,0 +1,177 @@
+name: Docker
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+env:
+  ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"
+  ALIYUN_NAME_SPACE: "${{ secrets.ALIYUN_NAME_SPACE }}"
+  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"
+  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
+
+jobs:
+  build:
+    name: Pull
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+    - name: Before freeing up disk space
+      run: |
+        echo "Before freeing up disk space"
+        echo "=============================================================================="
+        df -hT
+        echo "=============================================================================="
+
+    - name: Maximize build space
+      uses: easimon/maximize-build-space@v10
+      with:
+        root-reserve-mb: 2048
+        swap-size-mb: 128
+        remove-dotnet: 'true'
+        remove-haskell: 'true'
+        remove-android: 'true'
+        remove-codeql: 'true'
+        build-mount-path: '/var/lib/docker'
+
+    - name: Restart docker
+      run: sudo service docker restart
+
+    - name: Free up disk space complete
+      run: |
+        echo "Free up disk space complete"
+        echo "=============================================================================="
+        df -hT
+        echo "=============================================================================="
+
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Docker Setup Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and push image Aliyun
+      run: |
+        set -euo pipefail
+
+        # 使用 stdin 传密码，避免暴露在进程列表
+        echo "$ALIYUN_REGISTRY_PASSWORD" | docker login \
+          -u "$ALIYUN_REGISTRY_USER" \
+          --password-stdin "$ALIYUN_REGISTRY"
+
+        # ===================== 第一遍：检测重名镜像 =====================
+        declare -A duplicate_images
+        declare -A temp_map
+
+        while IFS= read -r line || [ -n "$line" ]; do
+            # 忽略空行与注释
+            [[ -z "${line// /}" ]] && continue
+            if echo "$line" | grep -qE '^[ \t]*#'; then
+                continue
+            fi
+
+            image=$(echo "$line" | awk '{print $NF}')
+            image="${image%%@*}"
+            echo "image: $image"
+
+            image_name_tag=$(echo "$image" | awk -F'/' '{print $NF}')
+            name_space=$(echo "$image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}')
+            name_space="${name_space}_"
+            image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
+
+            if [[ -n "${temp_map[$image_name]:-}" ]]; then
+                if [[ "${temp_map[$image_name]}" != "$name_space" ]]; then
+                    echo "::warning::duplicate image name: $image_name"
+                    duplicate_images[$image_name]="true"
+                fi
+            else
+                temp_map[$image_name]=$name_space
+            fi
+        done < images.txt
+
+        # ===================== 第二遍：拉取、打标签、推送 =====================
+        pull_failed=0
+        push_failed=0
+
+        while IFS= read -r line || [ -n "$line" ]; do
+            # 忽略空行与注释
+            [[ -z "${line// /}" ]] && continue
+            if echo "$line" | grep -qE '^[ \t]*#'; then
+                continue
+            fi
+
+            echo "=========================================="
+            echo "docker pull $line"
+
+            # 添加超时保护，防止无限等待
+            if ! timeout 600 docker pull "$line"; then
+                echo "::error::Pull failed or timeout: $line"
+                pull_failed=$((pull_failed + 1))
+                continue
+            fi
+
+            # 提取 platform
+            platform=$(echo "$line" | awk -F'--platform[ =]' '{if (NF>1) print $2}' | awk '{print $1}')
+            echo "platform: ${platform:-none}"
+
+            if [ -z "$platform" ]; then
+                platform_prefix=""
+            else
+                platform_prefix="${platform//\//_}_"
+            fi
+
+            # 提取镜像信息
+            image=$(echo "$line" | awk '{print $NF}')
+            image_name_tag=$(echo "$image" | awk -F'/' '{print $NF}')
+            name_space=$(echo "$image" | awk -F'/' '{if (NF==3) print $2; else if (NF==2) print $1; else print ""}')
+            image_name=$(echo "$image_name_tag" | awk -F':' '{print $1}')
+
+            # 如果镜像名重名，添加命名空间前缀
+            name_space_prefix=""
+            if [[ -n "${duplicate_images[$image_name]:-}" ]]; then
+                if [[ -n "${name_space}" ]]; then
+                    name_space_prefix="${name_space}_"
+                fi
+            fi
+
+            # 去除 @sha256 等摘要信息
+            image_name_tag="${image_name_tag%%@*}"
+            new_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE/${platform_prefix}${name_space_prefix}${image_name_tag}"
+
+            echo "docker tag $image $new_image"
+            if ! docker tag "$image" "$new_image"; then
+                echo "::error::Tag failed: $image -> $new_image"
+                push_failed=$((push_failed + 1))
+                docker rmi "$image" || true
+                continue
+            fi
+
+            echo "docker push $new_image"
+            if ! timeout 600 docker push "$new_image"; then
+                echo "::error::Push failed: $new_image"
+                push_failed=$((push_failed + 1))
+            fi
+
+            # 清理磁盘
+            echo "开始清理磁盘空间"
+            docker rmi "$image" || true
+            docker rmi "$new_image" || true
+            docker image prune -f || true
+            echo "磁盘空间清理完毕"
+            df -hT
+            echo "=========================================="
+
+        done < images.txt
+
+        # ===================== 汇总结果 =====================
+        echo "=========================================="
+        echo "Pull 失败: $pull_failed"
+        echo "Push 失败: $push_failed"
+        echo "=========================================="
+        df -hT
+
+        if [ "$pull_failed" -gt 0 ] || [ "$push_failed" -gt 0 ]; then
+            echo "::error::共有 $((pull_failed + push_failed)) 个镜像处理失败"
+            exit 1
+        fi
