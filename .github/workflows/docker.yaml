@@ -15,7 +15,7 @@ jobs:
   build:
     name: Pull
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 720
     steps:
     - name: Before freeing up disk space
       run: |
@@ -244,7 +244,7 @@ jobs:
             push_success=false
             for attempt in 1 2 3; do
                 echo "尝试第 ${attempt}/3 次 push..."
-                if timeout 300 docker push "$new_image"; then
+                if timeout 1800 docker push "$new_image"; then
                     push_success=true
                     echo "::notice::Push 成功: $new_image"
                     break
