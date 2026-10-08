@@ -1,3 +1,5 @@
 # weknora
 wechatopenai/weknora-app:v0.8.2
-
+wechatopenai/weknora-ui:v0.8.2
+wechatopenai/weknora-docreader:v0.8.2
+wechatopenai/weknora-sandbox:v0.8.2
