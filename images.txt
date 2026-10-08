@@ -5,3 +5,4 @@
 # wechatopenai/weknora-sandbox:v0.8.2
 # python:3.10.18-bookworm
 debian:12.12-slim
+node:24-bookworm-slim
