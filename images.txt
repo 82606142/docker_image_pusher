@@ -4,4 +4,7 @@
 # wechatopenai/weknora-docreader:v0.8.2
 # wechatopenai/weknora-sandbox:v0.8.2
 # python:3.10.18-bookworm
-nginx:1.30.3-alpine
+clickhouse/clickhouse-server:24.8
+langfuse/langfuse:3
+langfuse/langfuse-worker:3
+pgsty/minio:RELEASE.2026-08-04T00-00-00Z
